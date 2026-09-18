@@ -9,10 +9,14 @@ import sys
 import json
 from analyzer.pushup_analyzer import analyze_pushup_video
 from analyzer.squat_analyzer import analyze_squat_video
+from analyzer.plank_analyzer import analyze_plank_video
+
 
 ANALYZERS = {
     "push_up": analyze_pushup_video,
     "squat": analyze_squat_video,
+        "plank": analyze_plank_video,
+
 }
 
 if __name__ == "__main__":

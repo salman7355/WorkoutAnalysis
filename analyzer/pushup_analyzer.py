@@ -1,14 +1,14 @@
 import cv2
 import mediapipe as mp
 import numpy as np
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from .pose_utils import calculate_angle, pick_visible_side, get_joint_positions
 
 mp_pose = mp.solutions.pose
 
-
+# --- Thresholds (degrees) - tuned for a side-on push-up view, adjust as you get real data ---
 UP_THRESHOLD = 155          # elbow angle above this = considered "up" / starting a rep
 DOWN_THRESHOLD = 100        # elbow angle below this = considered "down" / bottom of rep
 REQUIRED_DEPTH_ANGLE = 100  # must reach at or below this to count as sufficient depth
@@ -16,16 +16,16 @@ LOCKOUT_ANGLE = 155         # must reach at or above this at top to count as ful
 BACK_STRAIGHT_TOLERANCE = 20  # hip angle must stay within 180 +/- this to be "straight"
 ELBOW_FLARE_MAX = 80        # torso-to-upper-arm angle above this = excessive flare
 
-# Smoothing window for landmark jitter
 SMOOTHING_WINDOW = 3
 
 
 @dataclass
 class RepMetrics:
     min_elbow_angle: float = 180.0
-    max_back_deviation: float = 0.0  # abs deviation from 180 at hip
+    max_back_deviation: float = 0.0
     max_flare_angle: float = 0.0
-    lockout_angle: Optional[float] = None  # filled in after the "up" phase completes
+    lockout_angle: Optional[float] = None
+    start_time: float = 0.0  # timestamp (sec) when the descent for this rep began
 
 
 @dataclass
@@ -34,6 +34,8 @@ class RepResult:
     is_valid: bool
     issue: Optional[str] = None
     tip: Optional[str] = None
+    start_sec: float = 0.0
+    end_sec: float = 0.0
 
 
 ISSUE_TIPS = {
@@ -72,18 +74,23 @@ def analyze_pushup_video(video_path: str) -> dict:
     if not cap.isOpened():
         raise ValueError(f"Could not open video: {video_path}")
 
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
     elbow_angle_history = []
     state = "up"  # "up" or "down"
     current_rep_metrics: Optional[RepMetrics] = None
     completed_reps: list[RepResult] = []
-    pending_lockout_rep: Optional[RepResult] = None  # rep awaiting its lockout check
+    pending_lockout_rep: Optional[RepResult] = None
+    frame_index = 0
 
     while cap.isOpened():
         success, frame = cap.read()
         if not success:
             break
+
+        timestamp = frame_index / fps
+        frame_index += 1
 
         image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = pose.process(image_rgb)
@@ -104,8 +111,6 @@ def analyze_pushup_video(video_path: str) -> dict:
 
         back_deviation = abs(180.0 - hip_angle)
 
-        # If we're in the "up" phase, keep tracking peak elbow angle for lockout
-        # of whichever rep just completed (if any).
         if state == "up" and pending_lockout_rep is not None:
             if current_rep_metrics is None:
                 current_rep_metrics = RepMetrics()
@@ -116,7 +121,6 @@ def analyze_pushup_video(video_path: str) -> dict:
         if state == "up" and smoothed_elbow < DOWN_THRESHOLD:
             # Descent started - finalize the previous rep's lockout check, if any
             if pending_lockout_rep is not None and current_rep_metrics is not None:
-                pending_lockout_rep.tip = pending_lockout_rep.tip  # no-op, kept for clarity
                 if (
                     pending_lockout_rep.is_valid
                     and current_rep_metrics.lockout_angle is not None
@@ -132,6 +136,7 @@ def analyze_pushup_video(video_path: str) -> dict:
             current_rep_metrics.min_elbow_angle = smoothed_elbow
             current_rep_metrics.max_back_deviation = back_deviation
             current_rep_metrics.max_flare_angle = flare_angle
+            current_rep_metrics.start_time = timestamp
 
         elif state == "down":
             current_rep_metrics.min_elbow_angle = min(
@@ -148,6 +153,8 @@ def analyze_pushup_video(video_path: str) -> dict:
                 # Ascent completed - count the rep, defer lockout check to the up phase
                 rep_index = len(completed_reps)
                 rep_result = _evaluate_rep(rep_index, current_rep_metrics)
+                rep_result.start_sec = round(current_rep_metrics.start_time, 2)
+                rep_result.end_sec = round(timestamp, 2)
                 completed_reps.append(rep_result)
                 pending_lockout_rep = rep_result
                 state = "up"
@@ -159,6 +166,7 @@ def analyze_pushup_video(video_path: str) -> dict:
     valid_reps = sum(1 for r in completed_reps if r.is_valid)
 
     return {
+        "type": "push_up",
         "exercise": "push_up",
         "totalReps": len(completed_reps),
         "validReps": valid_reps,
@@ -169,6 +177,8 @@ def analyze_pushup_video(video_path: str) -> dict:
                 "isValid": r.is_valid,
                 "issue": r.issue,
                 "tip": r.tip,
+                "startSec": r.start_sec,
+                "endSec": r.end_sec,
             }
             for r in completed_reps
         ],

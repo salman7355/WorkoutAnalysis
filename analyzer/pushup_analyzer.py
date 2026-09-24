@@ -25,7 +25,7 @@ class RepMetrics:
     max_back_deviation: float = 0.0
     max_flare_angle: float = 0.0
     lockout_angle: Optional[float] = None
-    start_time: float = 0.0  # timestamp (sec) when the descent for this rep began
+    start_time: float = 0.0  
 
 
 @dataclass

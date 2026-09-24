@@ -22,8 +22,7 @@ class RepMetrics:
     min_knee_angle: float = 180.0
     min_hip_angle: float = 180.0
     lockout_angle: Optional[float] = None
-    start_time: float = 0.0  # timestamp (sec) when the descent for this rep began
-
+    start_time: float = 0.0  
 
 @dataclass
 class RepResult:

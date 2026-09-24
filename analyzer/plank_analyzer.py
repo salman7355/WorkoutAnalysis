@@ -12,8 +12,6 @@ mp_pose = mp.solutions.pose
 # per-rep, since a plank has no reps.
 ALIGNMENT_ANGLE_THRESHOLD = 160
 
-# Ignore misalignment blips shorter than this - a single jittery frame from
-# pose detection noise isn't real bad form.
 MIN_ISSUE_DURATION_SEC = 1.5
 
 ISSUE_TIP = (
@@ -31,7 +29,7 @@ def analyze_plank_video(video_path: str) -> dict:
     pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
     frame_index = 0
-    frame_records: List[Tuple[float, bool]] = []  # (timestamp_sec, is_aligned)
+    frame_records: List[Tuple[float, bool]] = []  
 
     while cap.isOpened():
         success, frame = cap.read()
